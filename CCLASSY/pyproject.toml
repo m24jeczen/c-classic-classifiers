@@ -1,0 +1,22 @@
+[project]
+name = "CCLASSY"
+version = "0.0.1"
+dependencies = [
+  "numpy>=2.0.0"
+]
+requires-python = ">=3.12"
+authors = [
+  {name = "Magdalena Jeczeń", email = "magdalena.jeczen.studia@gmail.com"}
+]
+maintainers = [
+  {name = "Magdalena Jeczeń", email = "magdalena.jeczen.studia@gmail.com"}
+]
+description = "Lightweight Python package with classic binary classifiers implemented in C."
+
+
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "numpy>=2.0.0"
+]
