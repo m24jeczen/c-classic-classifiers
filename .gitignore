@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.o
+build/
+dist/
+*.egg-info/
+.eggs/
+_site/
+.sass-cache/
+.jekyll-cache/
