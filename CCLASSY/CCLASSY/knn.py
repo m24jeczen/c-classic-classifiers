@@ -24,7 +24,7 @@ blabla
     
     def predict(self, X: np.ndarray) -> np.ndarray:
         if not self.fitted:
-            raise ValueError("call fit() before predict()")
+            raise RuntimeError("call fit() before predict()")
         X = self._prepare_X(X)
         if X.shape[1] != self.X.shape[1]:
             raise ValueError(f"X has {X.shape[1]} features, but expected {self.X.shape[1]}")
