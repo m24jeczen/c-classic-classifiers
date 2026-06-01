@@ -28,19 +28,19 @@ static int parse_X_y(PyObject* args,
         return 0;
     if (PyArray_TYPE(*X_arr) != NPY_DOUBLE || PyArray_TYPE(*y_arr) != NPY_INT )
     {
-        PyErr_SetString(PyExc_Type_Error, "X must be float64, y must be int32");
+        PyErr_SetString(PyExc_TypeError, "X must be float64, y must be int32");
         return 0;
     }
     if(!PyArray_IS_C_CONTIGUOUS(*X_arr) || !PyArray_IS_C_CONTIGUOUS(*y_arr))
     {
-        PyErr_SetString(PyExc_Value_Error, "arrays must be C-contiguous");
+        PyErr_SetString(PyExc_ValueError, "arrays must be C-contiguous");
         return 0;
     }
     *n_samples = (size_t)PyArray_DIM(*X_arr, 0);
     *n_features = (size_t)PyArray_DIM(*X_arr, 1);
     if ((size_t)PyArray_DIM(*y_arr, 0) != *n_samples)
     {
-        PyErr_SetString(PyExc_Value_Error, "X and y must have the same number of samples");
+        PyErr_SetString(PyExc_ValueError, "X and y must have the same number of samples");
         return 0;
     }
     return 1;
@@ -142,37 +142,69 @@ static PyObject* py_nb_fit(PyObject* self, PyObject* args){
 static PyObject* py_nb_predict(PyObject* self, PyObject* args){
     PyObject* capsule;
     PyArrayObject* X_test_arr;
-    if (!PyArg_Parse_Tuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
+    if (!PyArg_ParseTuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
         return NULL;
     NBModel* model = (NBModel*)PyCapsule_GetPointer(capsule, "NBModel");
     if(!model)
         return PyErr_Format(PyExc_RuntimeError, "invalid model capsule");
     if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
         return PyErr_Format(PyExc_TypeError, "X must be float");
-    if (PyArray_IS_C_CONTIGUOUS(X_test_arr) != NPY_DOUBLE)
-        return PyErr_Format(PyExc_TypeError, "X must be C-contiguous");
+    if (!PyArray_IS_C_CONTIGUOUS(X_test_arr))
+        return PyErr_Format(PyExc_ValueError, "X must be C-contiguous");
+    if (PyArray_NDIM(X_test_arr) != 2)
+        return PyErr_Format(PyExc_ValueError, "X must be 2D");
+    if ((size_t)PyArray_DIM(X_test_arr, 1) != model->n_features)
+        return PyErr_Format(PyExc_ValueError, "X has wrong number of features");
     
+    size_t n_test = (size_t)PyArray_DIM(X_test_arr, 0);
+    const double* X_test = (const double*)PyArray_DATA(X_test_arr);
+    int* predictions = nb_predict(model, X_test, n_test);
+    if(!predictions)
+        return PyErr_Format(PyExc_RuntimeError, 
+            "nb_predict failed (memory allocation error)");
+
+    npy_intp dims[1] = {(npy_intp)n_test};
+    PyObject* result = PyArray_SimpleNewFromData(
+        1, dims, NPY_INT, predictions);
+    if (!result) {
+        free(predictions);
+        return PyErr_Format(PyExc_RuntimeError, 
+            "failed to create output array");
+    }
+    PyArray_ENABLEFLAGS((PyArrayObject*)result, NPY_ARRAY_OWNDATA);
+    return result;
+    
+}
+
+static PyObject* py_nb_free(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    if (!PyArg_ParseTuple(args, "O", &capsule))
+        return NULL;
+    NBModel* model = (NBModel*)PyCapsule_GetPointer(capsule, "NBModel");
+    if (model) nb_free(model);
+    Py_RETURN_NONE;
 }
 
 
 static PyMethodDef cclassy_methods[] = {
-        {"py_knn_predict", py_knn_predict, METH_VARARGS,
-        "KNN prediction: py_knn_predict(X_train, y_train, X_test, k)"},
-        {NULL, NULL, 0, NULL}
-    };
+    {"py_knn_predict", py_knn_predict, METH_VARARGS,"KNN prediction"},
+    {"py_nb_fit", py_nb_fit, METH_VARARGS, "Naive Bayes fit"},
+    {"py_nb_predict", py_nb_predict, METH_VARARGS, "Naive Bayes predict"},
+    {"py_nb_free", py_nb_free, METH_VARARGS, "Naive Bayes free model"},
+    {NULL, NULL, 0, NULL}
+};
 
-    static struct PyModuleDef cclassy_module = {
-        PyModuleDef_HEAD_INIT,
-        "cmodule",
-        "CCLASSY C extension module",
-        -1,
-        cclassy_methods
-    };
+static struct PyModuleDef cclassy_module = {
+    PyModuleDef_HEAD_INIT,
+    "cmodule",
+    "CCLASSY C extension module",
+    -1,
+    cclassy_methods
+};
 
-    PyMODINIT_FUNC PyInit_cmodule(void) {
-        PyObject* mod  = PyModule_Create(&cclassy_module);
-        if(!mod) return NULL;
-        import_array();
-        return mod;
-    
+PyMODINIT_FUNC PyInit_cmodule(void) {
+    PyObject* mod  = PyModule_Create(&cclassy_module);
+    if(!mod) return NULL;
+    import_array();
+    return mod;  
 }

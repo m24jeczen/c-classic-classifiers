@@ -10,7 +10,8 @@ setuptools.setup(
             sources=[
                 "src/cmodule.c",
                 "src/common.c",
-                "src/knn.c"
+                "src/knn.c",
+                "src/naive_bayes.c"
             ],
             include_dirs=[numpy.get_include()],
             extra_compile_args=["-fopenmp"],
