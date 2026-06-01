@@ -9,6 +9,44 @@ int* knn_predict(
     size_t n_train, size_t n_features, 
     const double* X_test, size_t n_test, int k);
 
+typedef struct{
+    double* mean;
+    double* var;
+    double prior[2];
+    size_t n_features;
+} NBModel;
+
+NBModel* nb_fit(const double* X_train, const int* y_train, size_t n_train, size_t n_features);
+int* nb_predict(const NBModel* model, const double* X_test, size_t n_test);
+void nb_free(NBModel* model);
+
+static int parse_X_y(PyObject* args, 
+    PyArrayObject** X_arr, PyArrayObject** y_arr,
+    size_t* n_samples, size_t* n_features)
+{
+    if(!PyArg_ParseTuple(args, "O!O!", &PyArray_Type, X_arr, &PyArray_Type, y_arr))
+        return 0;
+    if (PyArray_TYPE(*X_arr) != NPY_DOUBLE || PyArray_TYPE(*y_arr) != NPY_INT )
+    {
+        PyErr_SetString(PyExc_Type_Error, "X must be float64, y must be int32");
+        return 0;
+    }
+    if(!PyArray_IS_C_CONTIGUOUS(*X_arr) || !PyArray_IS_C_CONTIGUOUS(*y_arr))
+    {
+        PyErr_SetString(PyExc_Value_Error, "arrays must be C-contiguous");
+        return 0;
+    }
+    *n_samples = (size_t)PyArray_DIM(*X_arr, 0);
+    *n_features = (size_t)PyArray_DIM(*X_arr, 1);
+    if ((size_t)PyArray_DIM(*y_arr, 0) != *n_samples)
+    {
+        PyErr_SetString(PyExc_Value_Error, "X and y must have the same number of samples");
+        return 0;
+    }
+    return 1;
+}
+
+
 static PyObject* py_knn_predict(PyObject* self, PyObject* args){
     PyArrayObject *X_train_arr, *y_train_arr, *X_test_arr;
     int k;
@@ -79,8 +117,45 @@ static PyObject* py_knn_predict(PyObject* self, PyObject* args){
 
     PyArray_ENABLEFLAGS((PyArrayObject*)result, NPY_ARRAY_OWNDATA);
     return result;
+}
+
+static PyObject* py_nb_fit(PyObject* self, PyObject* args){
+    PyArrayObject *X_arr, *y_arr;
+    size_t n_samples, n_features;
+    if (!parse_X_y(args, &X_arr, &y_arr, &n_samples, &n_features))
+        return NULL;
+    const double* X = (const double*)PyArray_DATA(X_arr);
+    const int* y = (const int*) PyArray_DATA(y_arr);
+    NBModel* model = nb_fit(X,y,n_samples, n_features);
+    if(!model)
+        return PyErr_Format(PyExc_RuntimeError,
+        "nb_fit failed (memory allocation error)");
+    PyObject* capsule = PyCapsule_New(model, "NBModel", NULL);
+    if(!capsule){
+        nb_free(model);
+        return PyErr_Format(PyExc_RuntimeError,
+        "failed to create capsule for model");
     }
-    static PyMethodDef cclassy_methods[] = {
+    return capsule;
+}
+
+static PyObject* py_nb_predict(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    PyArrayObject* X_test_arr;
+    if (!PyArg_Parse_Tuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
+        return NULL;
+    NBModel* model = (NBModel*)PyCapsule_GetPointer(capsule, "NBModel");
+    if(!model)
+        return PyErr_Format(PyExc_RuntimeError, "invalid model capsule");
+    if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
+        return PyErr_Format(PyExc_TypeError, "X must be float");
+    if (PyArray_IS_C_CONTIGUOUS(X_test_arr) != NPY_DOUBLE)
+        return PyErr_Format(PyExc_TypeError, "X must be C-contiguous");
+    
+}
+
+
+static PyMethodDef cclassy_methods[] = {
         {"py_knn_predict", py_knn_predict, METH_VARARGS,
         "KNN prediction: py_knn_predict(X_train, y_train, X_test, k)"},
         {NULL, NULL, 0, NULL}
