@@ -11,7 +11,7 @@ class NaiveBayesClassifier(BaseClassifier):
         self._validate_X_y(X, y)
         X, y = self._prepare_data(X, y)
         if self._model is not None:
-            py_nb_free(self.model)
+            py_nb_free(self._model)
         self._model = py_nb_fit(X, y)
         self.fitted = True
         return self
