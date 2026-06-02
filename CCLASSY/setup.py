@@ -11,7 +11,8 @@ setuptools.setup(
                 "src/cmodule.c",
                 "src/common.c",
                 "src/knn.c",
-                "src/naive_bayes.c"
+                "src/naive_bayes.c",
+                "src/logistic_regression.c"
             ],
             include_dirs=[numpy.get_include()],
             extra_compile_args=["-fopenmp"],
