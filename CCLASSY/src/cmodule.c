@@ -32,6 +32,17 @@ LRModel* lr_fit(const double* X_train, const int* y_train,
 int* lr_predict(const LRModel* model, const double* X_test, size_t n_test);
 void lr_free(LRModel* model);
 
+typedef struct {
+    double* weights;
+    double bias;
+    size_t n_features;
+} SVMModel;
+
+SVMModel* svm_fit(const double* X_train, const int* y_train, size_t n_train, size_t n_features,
+    int n_iterations, double learning_rate, double lambda);
+int* svm_predict(const SVMModel* model, const double* X_test, size_t n_test);
+void svm_free(SVMModel* model);
+
 
 static int parse_X_y(PyObject* args, 
     PyArrayObject** X_arr, PyArrayObject** y_arr,
@@ -274,7 +285,7 @@ static PyObject* py_lr_predict(PyObject* self, PyObject* args){
     int* predictions = lr_predict(model, X_test, n_test);
     if(!predictions)
         return PyErr_Format(PyExc_RuntimeError, 
-            "nb_predict failed (memory allocation error)");
+            "lr_predict failed (memory allocation error)");
 
     npy_intp dims[1] = {(npy_intp)n_test};
     PyObject* result = PyArray_SimpleNewFromData(
@@ -299,6 +310,110 @@ static PyObject* py_lr_free(PyObject* self, PyObject* args){
 }
 
 
+static PyObject* py_svm_fit(PyObject* self, PyObject* args){
+    PyArrayObject *X_arr, *y_arr;
+    size_t n_samples, n_features;
+    int n_iterations;
+    double learning_rate, lambda;
+    if(!PyArg_ParseTuple(args, "O!O!idd",
+        &PyArray_Type, &X_arr,
+        &PyArray_Type, &y_arr,
+        &n_iterations,
+        &learning_rate,
+        &lambda))
+    return NULL;
+
+    if (PyArray_TYPE(X_arr) != NPY_DOUBLE ||
+        PyArray_TYPE(y_arr) != NPY_INT)
+        return PyErr_Format(PyExc_TypeError,
+            "X must be float64, y must be int32");
+
+    if (!PyArray_IS_C_CONTIGUOUS(X_arr) ||
+        !PyArray_IS_C_CONTIGUOUS(y_arr))
+        return PyErr_Format(PyExc_ValueError,
+        "arrays must be C-contiguous");
+
+    if (PyArray_NDIM(X_arr) != 2 || PyArray_NDIM(y_arr) != 1)
+            return PyErr_Format(PyExc_ValueError, 
+            "X must be 2D, y must be 1D");
+
+    n_samples = (size_t)PyArray_DIM(X_arr, 0);
+    n_features = (size_t)PyArray_DIM(X_arr, 1);
+    if ((size_t)PyArray_DIM(y_arr, 0) != n_samples)
+        return PyErr_Format(PyExc_ValueError, "X and y must have the same number of samples");
+
+    if(n_iterations <= 0)
+        return PyErr_Format(PyExc_ValueError, 
+            "n_iterations must be > 0");
+    if(learning_rate <= 0.0)
+        return PyErr_Format(PyExc_ValueError, 
+            "learning_rate must be >0");
+    if(lambda <= 0.0)
+        return PyErr_Format(PyExc_ValueError, 
+            "lambda must be >0");
+
+    const double* X = (const double*)PyArray_DATA(X_arr);
+    const int* y = (const int*)PyArray_DATA(y_arr);
+    SVMModel* model = svm_fit(X, y, n_samples, n_features,
+        n_iterations, learning_rate, lambda);
+    if (!model)
+        return PyErr_Format(PyExc_RuntimeError, 
+            "svm_fit_failed (memory allocation error)");
+    PyObject* capsule = PyCapsule_New(model, "SVMModel", NULL);
+    if(!capsule) {
+    svm_free(model);
+        return PyErr_Format(PyExc_RuntimeError, 
+            "failed to create capsule for model");
+    }
+    return capsule;
+}
+
+static PyObject* py_svm_predict(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    PyArrayObject* X_test_arr;
+    if (!PyArg_ParseTuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
+        return NULL;
+    SVMModel* model = (SVMModel*)PyCapsule_GetPointer(capsule, "SVMModel");
+    if(!model)
+        return PyErr_Format(PyExc_RuntimeError, "invalid model capsule");
+    if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
+        return PyErr_Format(PyExc_TypeError, "X must be float");
+    if (PyArray_NDIM(X_test_arr) != 2)
+        return PyErr_Format(PyExc_ValueError, "X must be 2D");
+    if (!PyArray_IS_C_CONTIGUOUS(X_test_arr))
+        return PyErr_Format(PyExc_ValueError, "X must be C-contiguous");
+    if ((size_t)PyArray_DIM(X_test_arr, 1) != model->n_features)
+        return PyErr_Format(PyExc_ValueError, "X has wrong number of features");
+    
+    size_t n_test = (size_t)PyArray_DIM(X_test_arr, 0);
+    const double* X_test = (const double*)PyArray_DATA(X_test_arr);
+    int* predictions = svm_predict(model, X_test, n_test);
+    if(!predictions)
+        return PyErr_Format(PyExc_RuntimeError, 
+            "svm_predict failed (memory allocation error)");
+
+    npy_intp dims[1] = {(npy_intp)n_test};
+    PyObject* result = PyArray_SimpleNewFromData(
+        1, dims, NPY_INT, predictions);
+    if (!result) {
+        free(predictions);
+        return PyErr_Format(PyExc_RuntimeError, 
+            "failed to create output array");
+    }
+    PyArray_ENABLEFLAGS((PyArrayObject*)result, NPY_ARRAY_OWNDATA);
+    return result;
+    
+}
+
+static PyObject* py_svm_free(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    if (!PyArg_ParseTuple(args, "O", &capsule))
+        return NULL;
+    SVMModel* model = (SVMModel*)PyCapsule_GetPointer(capsule, "SVMModel");
+    if (model) svm_free(model);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef cclassy_methods[] = {
     {"py_knn_predict", py_knn_predict, METH_VARARGS,"KNN prediction"},
     {"py_nb_fit", py_nb_fit, METH_VARARGS, "Naive Bayes fit"},
@@ -307,6 +422,9 @@ static PyMethodDef cclassy_methods[] = {
     {"py_lr_fit", py_lr_fit, METH_VARARGS, "Logistic Regression fit"},
     {"py_lr_predict", py_lr_predict, METH_VARARGS, "Logistic Regression predict"},
     {"py_lr_free", py_lr_free, METH_VARARGS, "Logistic Regression free model"},
+    {"py_svm_fit", py_svm_fit, METH_VARARGS, "SVM fit"},
+    {"py_svm_predict", py_svm_predict, METH_VARARGS, "SVM predict"},
+    {"py_svm_free", py_svm_free, METH_VARARGS, "SVM free model"},
     {NULL, NULL, 0, NULL}
 };
 
