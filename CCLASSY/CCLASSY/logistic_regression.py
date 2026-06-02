@@ -5,11 +5,13 @@ from .cmodule import py_lr_fit, py_lr_predict, py_lr_free
 class LogisticRegressionClassifier(BaseClassifier):
     def __init__(self, n_iterations: int=1000, learning_rate: float=0.1):
         super().__init__()
+        self._model = None
         if n_iterations <= 0:
             raise ValueError("n iterations must be > 0")
+        if learning_rate <= 0.0:
+            raise ValueError("learning rate must be > 0")
         self.n_iterations = n_iterations
         self.learning_rate = learning_rate
-        self._model = None
         
     def fit(self, X:np.ndarray, y:np.ndarray) -> 'LogisticRegressionClassifier':
         self._validate_X_y(X,y)
