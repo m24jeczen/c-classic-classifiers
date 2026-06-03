@@ -98,3 +98,14 @@ def test_method_chaining(simple_data):
     X_test = np.array([[1.1, 2.0]])
     assert LogisticRegressionClassifier().fit(X_train, y_train).predict(X_test)[0] == 0
     
+def test_coef_available_after_fit(simple_data):
+    X, y = simple_data
+    clf = LogisticRegressionClassifier().fit(X, y)
+    assert clf.coef_ is not None
+    assert clf.coef_.shape == (2,)
+    
+def test_intercept_available_after_fit(simple_data):
+    X, y = simple_data
+    clf = LogisticRegressionClassifier().fit(X, y)
+    assert clf.intercept_ is not None
+    assert isinstance(clf.intercept_, float)

@@ -9,22 +9,10 @@ int* knn_predict(
     size_t n_train, size_t n_features, 
     const double* X_test, size_t n_test, int k);
 
-typedef struct{
-    double* mean;
-    double* var;
-    double prior[2];
-    size_t n_features;
-} NBModel;
-
-NBModel* nb_fit(const double* X_train, const int* y_train, size_t n_train, size_t n_features);
-int* nb_predict(const NBModel* model, const double* X_test, size_t n_test);
-void nb_free(NBModel* model);
-
-typedef struct {
-    double* weights;
-    double bias;
-    size_t n_features;
-} LRModel;
+int nb_fit(const double* X_train, const int* y_train, size_t n_train, size_t n_features,
+            double* out_mean, double* out_var, double* out_prior);
+int* nb_predict(const double* mean, const double* var, const double* prior,
+                 size_t n_features, const double* X_test, size_t n_test);
 
 double* lr_fit(const double* X_train, const int* y_train, 
     size_t n_train, size_t n_features,
@@ -150,38 +138,83 @@ static PyObject* py_nb_fit(PyObject* self, PyObject* args){
         return NULL;
     const double* X = (const double*)PyArray_DATA(X_arr);
     const int* y = (const int*) PyArray_DATA(y_arr);
-    NBModel* model = nb_fit(X,y,n_samples, n_features);
-    if(!model)
+
+    npy_intp dims_2d[2] = {2, (npy_intp)n_features};
+    npy_intp dims_1d[1] = {2};
+
+    PyObject* mean_arr = PyArray_ZEROS(2, dims_2d, NPY_DOUBLE, 0)
+    PyObject* var_arr = PyArray_ZEROS(2, dims_2d, NPY_DOUBLE, 0);
+    PyObject* prior_arr = PyArray_ZEROS(1, dims_1d, NPY_DOUBLE, 0);
+
+    if(!mean_arr || !var_arr || !prior_arr){
+        Py_XDECREF(mean_arr);
+        Py_XDECREF(var_arr);
+        Py_XDECREF(prior_arr);
         return PyErr_Format(PyExc_RuntimeError,
-        "nb_fit failed (memory allocation error)");
-    PyObject* capsule = PyCapsule_New(model, "NBModel", NULL);
-    if(!capsule){
-        nb_free(model);
-        return PyErr_Format(PyExc_RuntimeError,
-        "failed to create capsule for model");
+            "failed to allocate output arrays");
     }
-    return capsule;
+
+    double* mean = (double*)PyArray_DATA((PyArrayObject*)mean_arr);
+    double* var = (double*)PyArray_DATA((PyArrayObject*)var_arr);
+    double* prior = (double*)PyArray_DATA((PyArrayObject*)prior_arr);
+
+    if (!nb_fit(X,y, n_samples, n_features, mean, var, prior)){
+        Py_DECREF(mean_arr);
+        Py_DECREF(var_arr);
+        Py_DECREF(prior_arr);
+        return PyErr_Format(PyExc_RuntimeError, "nb_fit failed");
+    }
+
+    PyObject* result = PyTuple_Pack(3,mean_arr, var_arr, prior_arr);
+    Py_DECREF(mean_arr);
+    Py_DECREF(var_arr);
+    Py_DECREF(prior_arr);
+    return result;
+
 }
 
 static PyObject* py_nb_predict(PyObject* self, PyObject* args){
-    PyObject* capsule;
-    PyArrayObject* X_test_arr;
-    if (!PyArg_ParseTuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
+    PyArrayObject* *mean_arr, *var_arr, *prior_arr, X_test_arr;
+
+    if (!PyArg_ParseTuple(args, "O!O!O!O!", 
+        &PyArray_Type, &mean_arr,
+        &PyArray_Type, &var_arr,
+        &PyArray_Type, &prior_arr,
+        &PyArray_Type, &X_test_arr))
         return NULL;
-    NBModel* model = (NBModel*)PyCapsule_GetPointer(capsule, "NBModel");
-    if(!model)
-        return PyErr_Format(PyExc_RuntimeError, "invalid model capsule");
-    if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
-        return PyErr_Format(PyExc_TypeError, "X must be float");
-    if (PyArray_NDIM(X_test_arr) != 2)
-        return PyErr_Format(PyExc_ValueError, "X must be 2D");
-    if (!PyArray_IS_C_CONTIGUOUS(X_test_arr))
-        return PyErr_Format(PyExc_ValueError, "X must be C-contiguous");
-    if ((size_t)PyArray_DIM(X_test_arr, 1) != model->n_features)
-        return PyErr_Format(PyExc_ValueError, "X has wrong number of features");
+
+    if (PyArray_TYPE(mean_arr) != NPY_DOUBLE ||
+        PyArray_TYPE(var_arr) != NPY_DOUBLE ||
+        PyArray_TYPE(prior_arr) != NPY_DOUBLE ||
+        PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
+        return PyErr_Format(PyExc_TypeError, "all arrays must be float64");
+
     
-    size_t n_test = (size_t)PyArray_DIM(X_test_arr, 0);
+    if (PyArray_IS_C_CONTIGUOUS(mean_arr) ||
+        PyArray_IS_C_CONTIGUOUS(var_arr) ||
+        PyArray_IS_C_CONTIGUOUS(prior_arr) ||
+        PyArray_IS_C_CONTIGUOUS(X_test_arr))
+        return PyErr_Format(PyExc_TypeError, "all arrays must be C-contiguous");
+
+    if (PyArray_NDIM(mean_arr) != 2 ||
+        PyArray_NDIM(var_arr) != 2 ||
+        PyArray_NDIM(prior_arr) != 1 ||
+        PyArray_NDIM(X_test_arr) != 2)
+        return PyErr_Format(PyExc_TypeError, 
+            "mean,var, X must be 2D, prior must be 1D");
+
+    size_t n_features = (size_t)PyArray_DIM(mean_arr,1);
+    size_t n_test = (size_t)PyArray_DIM(X_test_arr,0);
+
+    if ((size_t)PyArray_DIM(X_test_arr, 1) != n_features)
+            return PyErr_Format(PyExc_ValueError, 
+            "X has wrong number of features"); 
+
+    double* mean = (double*)PyArray_DATA((PyArrayObject*)mean_arr);
+    double* var = (double*)PyArray_DATA((PyArrayObject*)var_arr);
+    double* prior = (double*)PyArray_DATA((PyArrayObject*)prior_arr);
     const double* X_test = (const double*)PyArray_DATA(X_test_arr);
+
     int* predictions = nb_predict(model, X_test, n_test);
     if(!predictions)
         return PyErr_Format(PyExc_RuntimeError, 

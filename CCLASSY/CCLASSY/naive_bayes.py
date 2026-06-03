@@ -1,18 +1,18 @@
 import numpy as np
 from .core import BaseClassifier
-from .cmodule import py_nb_fit, py_nb_predict, py_nb_free
+from .cmodule import py_nb_fit, py_nb_predict
 
 class NaiveBayesClassifier(BaseClassifier):
     def __init__(self):
         super().__init__()
-        self._model = None
+        self.mean_ = None
+        self.var_ = None
+        self.prior_ = None
     
     def fit(self, X: np.ndarray, y:np.ndarray) -> 'NaiveBayesClassifier':
         self._validate_X_y(X, y)
         X, y = self._prepare_data(X, y)
-        if self._model is not None:
-            py_nb_free(self._model)
-        self._model = py_nb_fit(X, y)
+        self.mean_, self.var_, self.prior_ = py_nb_fit(X,y)
         self.fitted = True
         return self
     
