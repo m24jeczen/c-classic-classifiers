@@ -14,7 +14,7 @@ double* lr_fit(
     int n_iterations, double learning_rate,
     double* out_bias)
 {
-    double* weights = (double*)malloc(sizeof(double));
+    double* weights = (double*)calloc(n_features, sizeof(double));
     if (!weights) return NULL;
 
     double bias = 0.0;

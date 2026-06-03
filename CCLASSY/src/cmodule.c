@@ -26,11 +26,11 @@ typedef struct {
     size_t n_features;
 } LRModel;
 
-LRModel* lr_fit(const double* X_train, const int* y_train, 
+double* lr_fit(const double* X_train, const int* y_train, 
     size_t n_train, size_t n_features,
-    int n_iterations, double learning_rate);
-int* lr_predict(const LRModel* model, const double* X_test, size_t n_test);
-void lr_free(LRModel* model);
+    int n_iterations, double learning_rate,
+    double* out_bias);
+int* lr_predict(const double* weights, double bias, size_t n_features, const double* X_test, size_t n_test);
 
 typedef struct {
     double* weights;
@@ -248,41 +248,59 @@ static PyObject* py_lr_fit(PyObject* self, PyObject* args){
             "learning_rate must be >0");
     const double* X = (const double*)PyArray_DATA(X_arr);
     const int* y = (const int*)PyArray_DATA(y_arr);
-    LRModel* model = lr_fit(X, y, n_samples, n_features,
-        n_iterations, learning_rate);
-    if (!model)
+
+    double out_bias = 0.0;
+    double* weights = lr_fit(X,y, n_samples, n_features, n_iterations, learning_rate, &out_bias);
+
+    if(!weights) 
         return PyErr_Format(PyExc_RuntimeError, 
-            "lr_fit_failed (memory allocation error)");
-    PyObject* capsule = PyCapsule_New(model, "LRModel", NULL);
-    if(!capsule) {
-        lr_free(model);
+            "lr_fit failed (memory allocation error)");
+
+    npy_intp dims[1] = {(npy_intp)n_features};
+    PyObject* weights_arr = PyArray_SimpleNewFromData(
+        1, dims, NPY_DOUBLE, weights);
+    if (!weights_arr) {
+        free(weights);
         return PyErr_Format(PyExc_RuntimeError, 
-            "failed to create capsule for model");
+            "failed to create weights array");
     }
-    return capsule;
+
+    PyArray_ENABLEFLAGS((PyArrayObject*)weights_arr, NPY_ARRAY_OWNDATA);
+    PyObject* result = PyTuple_Pack(2,
+        weights_arr,
+        PyFloat_FromDouble(out_bias));
+    Py_DECREF(weights_arr);
+    return result;
+
 }
 
 
 static PyObject* py_lr_predict(PyObject* self, PyObject* args){
-    PyObject* capsule;
-    PyArrayObject* X_test_arr;
-    if (!PyArg_ParseTuple(args, "OO!", &capsule, &PyArray_Type, &X_test_arr))
+    PyArrayObject *weights_arr, *X_test_arr;
+    double bias;
+
+    if (!PyArg_ParseTuple(args, "O!dO!", 
+        &PyArray_Type, &weights_arr, &bias, &PyArray_Type, &X_test_arr))
         return NULL;
-    LRModel* model = (LRModel*)PyCapsule_GetPointer(capsule, "LRModel");
-    if(!model)
-        return PyErr_Format(PyExc_RuntimeError, "invalid model capsule");
-    if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE)
-        return PyErr_Format(PyExc_TypeError, "X must be float");
-    if (PyArray_NDIM(X_test_arr) != 2)
-        return PyErr_Format(PyExc_ValueError, "X must be 2D");
-    if (!PyArray_IS_C_CONTIGUOUS(X_test_arr))
-        return PyErr_Format(PyExc_ValueError, "X must be C-contiguous");
-    if ((size_t)PyArray_DIM(X_test_arr, 1) != model->n_features)
+
+    if (PyArray_TYPE(X_test_arr) != NPY_DOUBLE ||
+        PyArray_TYPE(weights_arr) != NPY_DOUBLE)
+        return PyErr_Format(PyExc_TypeError, "weights and X must be float64");
+    if (PyArray_NDIM(X_test_arr) != 2 || PyArray_NDIM(weights_arr) != 1)
+        return PyErr_Format(PyExc_ValueError, "weights must be 1D, X must be 2D");
+    if (!PyArray_IS_C_CONTIGUOUS(X_test_arr) ||
+        !PyArray_IS_C_CONTIGUOUS(weights_arr))
+        return PyErr_Format(PyExc_ValueError, "X and weights must be C-contiguous");
+
+    size_t n_features = (size_t)PyArray_DIM(weights_arr, 0);
+    size_t n_test = (size_t)PyArray_DIM(X_test_arr, 0);
+
+    if ((size_t)PyArray_DIM(X_test_arr, 1) != n_features)
         return PyErr_Format(PyExc_ValueError, "X has wrong number of features");
     
-    size_t n_test = (size_t)PyArray_DIM(X_test_arr, 0);
+    const double* weights = (const double*)PyArray_DATA(weights_arr);
     const double* X_test = (const double*)PyArray_DATA(X_test_arr);
-    int* predictions = lr_predict(model, X_test, n_test);
+    int* predictions = lr_predict(weights, bias, n_features, X_test, n_test);
     if(!predictions)
         return PyErr_Format(PyExc_RuntimeError, 
             "lr_predict failed (memory allocation error)");
@@ -298,15 +316,6 @@ static PyObject* py_lr_predict(PyObject* self, PyObject* args){
     PyArray_ENABLEFLAGS((PyArrayObject*)result, NPY_ARRAY_OWNDATA);
     return result;
     
-}
-
-static PyObject* py_lr_free(PyObject* self, PyObject* args){
-    PyObject* capsule;
-    if (!PyArg_ParseTuple(args, "O", &capsule))
-        return NULL;
-    LRModel* model = (LRModel*)PyCapsule_GetPointer(capsule, "LRModel");
-    if (model) lr_free(model);
-    Py_RETURN_NONE;
 }
 
 
@@ -421,7 +430,6 @@ static PyMethodDef cclassy_methods[] = {
     {"py_nb_free", py_nb_free, METH_VARARGS, "Naive Bayes free model"},
     {"py_lr_fit", py_lr_fit, METH_VARARGS, "Logistic Regression fit"},
     {"py_lr_predict", py_lr_predict, METH_VARARGS, "Logistic Regression predict"},
-    {"py_lr_free", py_lr_free, METH_VARARGS, "Logistic Regression free model"},
     {"py_svm_fit", py_svm_fit, METH_VARARGS, "SVM fit"},
     {"py_svm_predict", py_svm_predict, METH_VARARGS, "SVM predict"},
     {"py_svm_free", py_svm_free, METH_VARARGS, "SVM free model"},
