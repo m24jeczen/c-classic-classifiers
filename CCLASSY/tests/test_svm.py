@@ -43,7 +43,7 @@ def test_invalid_lambda_negative():
 def test_default_params():
     clf = SVMClassifier()
     assert clf.n_iterations == 1000
-    assert clf.learning_rate == 0.1
+    assert clf.learning_rate == 0.01
     assert clf.lambda_ == 0.01
     
     
@@ -107,4 +107,23 @@ def test_method_chaining(simple_data):
     X_train, y_train = simple_data
     X_test = np.array([[1.1, 2.0]])
     assert SVMClassifier().fit(X_train, y_train).predict(X_test)[0] == 0
+    
+    
+def test_coef_available_after_fit(simple_data):
+    X,y = simple_data
+    clf = SVMClassifier().fit(X, y)
+    assert clf.coef_ is not None
+    assert clf.coef_.shape == (2,)
+    
+def test_intercept_available_after_fit(simple_data):
+    X,y = simple_data
+    clf = SVMClassifier().fit(X, y)
+    assert clf.intercept_ is not None
+    assert isinstance(clf.intercept_, float)
+    
+def test_attribute_none_before_fit():
+    clf = SVMClassifier()
+    assert clf.coef_ is None
+    assert clf.intercept_ is None
+    
     
