@@ -142,7 +142,7 @@ static PyObject* py_nb_fit(PyObject* self, PyObject* args){
     npy_intp dims_2d[2] = {2, (npy_intp)n_features};
     npy_intp dims_1d[1] = {2};
 
-    PyObject* mean_arr = PyArray_ZEROS(2, dims_2d, NPY_DOUBLE, 0)
+    PyObject* mean_arr = PyArray_ZEROS(2, dims_2d, NPY_DOUBLE, 0);
     PyObject* var_arr = PyArray_ZEROS(2, dims_2d, NPY_DOUBLE, 0);
     PyObject* prior_arr = PyArray_ZEROS(1, dims_1d, NPY_DOUBLE, 0);
 
@@ -174,7 +174,7 @@ static PyObject* py_nb_fit(PyObject* self, PyObject* args){
 }
 
 static PyObject* py_nb_predict(PyObject* self, PyObject* args){
-    PyArrayObject* *mean_arr, *var_arr, *prior_arr, X_test_arr;
+    PyArrayObject *mean_arr, *var_arr, *prior_arr, *X_test_arr;
 
     if (!PyArg_ParseTuple(args, "O!O!O!O!", 
         &PyArray_Type, &mean_arr,
@@ -190,10 +190,10 @@ static PyObject* py_nb_predict(PyObject* self, PyObject* args){
         return PyErr_Format(PyExc_TypeError, "all arrays must be float64");
 
     
-    if (PyArray_IS_C_CONTIGUOUS(mean_arr) ||
-        PyArray_IS_C_CONTIGUOUS(var_arr) ||
-        PyArray_IS_C_CONTIGUOUS(prior_arr) ||
-        PyArray_IS_C_CONTIGUOUS(X_test_arr))
+    if (!PyArray_IS_C_CONTIGUOUS(mean_arr) ||
+        !PyArray_IS_C_CONTIGUOUS(var_arr) ||
+        !PyArray_IS_C_CONTIGUOUS(prior_arr) ||
+        !PyArray_IS_C_CONTIGUOUS(X_test_arr))
         return PyErr_Format(PyExc_TypeError, "all arrays must be C-contiguous");
 
     if (PyArray_NDIM(mean_arr) != 2 ||
@@ -210,12 +210,12 @@ static PyObject* py_nb_predict(PyObject* self, PyObject* args){
             return PyErr_Format(PyExc_ValueError, 
             "X has wrong number of features"); 
 
-    double* mean = (double*)PyArray_DATA((PyArrayObject*)mean_arr);
-    double* var = (double*)PyArray_DATA((PyArrayObject*)var_arr);
-    double* prior = (double*)PyArray_DATA((PyArrayObject*)prior_arr);
+    const double* mean = (double*)PyArray_DATA((PyArrayObject*)mean_arr);
+    const double* var = (double*)PyArray_DATA((PyArrayObject*)var_arr);
+    const double* prior = (double*)PyArray_DATA((PyArrayObject*)prior_arr);
     const double* X_test = (const double*)PyArray_DATA(X_test_arr);
 
-    int* predictions = nb_predict(model, X_test, n_test);
+    int* predictions = nb_predict(mean, var, prior, n_features, X_test, n_test);
     if(!predictions)
         return PyErr_Format(PyExc_RuntimeError, 
             "nb_predict failed (memory allocation error)");
@@ -231,15 +231,6 @@ static PyObject* py_nb_predict(PyObject* self, PyObject* args){
     PyArray_ENABLEFLAGS((PyArrayObject*)result, NPY_ARRAY_OWNDATA);
     return result;
     
-}
-
-static PyObject* py_nb_free(PyObject* self, PyObject* args){
-    PyObject* capsule;
-    if (!PyArg_ParseTuple(args, "O", &capsule))
-        return NULL;
-    NBModel* model = (NBModel*)PyCapsule_GetPointer(capsule, "NBModel");
-    if (model) nb_free(model);
-    Py_RETURN_NONE;
 }
 
 static PyObject* py_lr_fit(PyObject* self, PyObject* args){
@@ -460,7 +451,6 @@ static PyMethodDef cclassy_methods[] = {
     {"py_knn_predict", py_knn_predict, METH_VARARGS,"KNN prediction"},
     {"py_nb_fit", py_nb_fit, METH_VARARGS, "Naive Bayes fit"},
     {"py_nb_predict", py_nb_predict, METH_VARARGS, "Naive Bayes predict"},
-    {"py_nb_free", py_nb_free, METH_VARARGS, "Naive Bayes free model"},
     {"py_lr_fit", py_lr_fit, METH_VARARGS, "Logistic Regression fit"},
     {"py_lr_predict", py_lr_predict, METH_VARARGS, "Logistic Regression predict"},
     {"py_svm_fit", py_svm_fit, METH_VARARGS, "SVM fit"},

@@ -20,9 +20,4 @@ class NaiveBayesClassifier(BaseClassifier):
         if not self.fitted:
             raise RuntimeError("call fit() before predict()")
         X = self._prepare_X(X)
-        return py_nb_predict(self._model, X)
-    
-    def __del__(self):
-        if self._model is not None:
-            py_nb_free(self._model)
-            self._model = None
+        return py_nb_predict(self.mean_, self.var_, self.prior_, X)

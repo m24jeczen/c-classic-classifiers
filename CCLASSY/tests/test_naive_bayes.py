@@ -79,3 +79,28 @@ def test_method_chaining(simple_data):
     assert NaiveBayesClassifier().fit(X_train, y_train).predict(X_test)[0] == 0
         
         
+def test_mean_avaliable_after_fit(simple_data):
+    X, y = simple_data
+    clf = NaiveBayesClassifier().fit(X,y)
+    assert clf.mean_ is not None
+    assert clf.mean_.shape == (2,2)
+    
+def test_var_available_after_fit(simple_data):
+    X,y = simple_data
+    clf = NaiveBayesClassifier().fit(X,y)
+    assert clf.var_ is not None
+    assert clf.var_.shape == (2,2)
+    
+def test_prior_available_after_fit(simple_data):
+    X,y = simple_data
+    clf = NaiveBayesClassifier().fit(X,y)
+    assert clf.prior_ is not None
+    assert clf.prior_.shape == (2,)
+    assert abs(clf.prior_[0] + clf.prior_[1] - 1.0) < 1e-9
+    
+def test_attributes_none_before_fit():
+    clf = NaiveBayesClassifier()
+    assert clf.mean_ is None
+    assert clf.var_ is None
+    assert clf.prior_ is None
+    
